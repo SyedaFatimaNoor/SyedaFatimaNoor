@@ -9,12 +9,40 @@ def load_rgb(path):
     return Image.open(path).convert("RGB")
 
 
-def crop_to_grid(img):
+def crop_to_grid(img, crop=CROP):
     w, h = img.size
-    x0, y0, x1, y1 = CROP
+    x0, y0, x1, y1 = crop
     box = (int(w * x0), int(h * y0), int(w * x1), int(h * y1))
     cropped = img.crop(box)
     return ImageOps.fit(cropped, (GRID_W, GRID_H), Image.LANCZOS)
+
+
+def auto_center_crop(img, max_iter=6):
+    w, h = img.size
+    x0, y0, x1, y1 = CROP
+    cw = x1 - x0
+    for _ in range(max_iter):
+        temp = crop_to_grid(img, (x0, y0, x1, y1))
+        mask = subject_mask(temp)
+        mx = wt = 0
+        data = list(mask.getdata())
+        for yy in range(GRID_H):
+            for xx in range(GRID_W):
+                v = data[yy * GRID_W + xx]
+                if v > 90:
+                    mx += xx * v
+                    wt += v
+        if wt == 0:
+            break
+        shift = mx / wt - GRID_W / 2
+        if abs(shift) < 1.0:
+            break
+        dx = shift * (cw * w) / GRID_W
+        nx0 = max(0.0, min(x0 + dx / w, 1.0 - cw))
+        if abs(nx0 - x0) < 1e-4:
+            break
+        x0, x1 = nx0, nx0 + cw
+    return (x0, y0, x1, y1)
 
 
 def mean_luminance(img):
@@ -88,7 +116,7 @@ def _threshold(data, w, h, thresh, dark):
 
 
 def dot_runs(img, dark, thr_scale=1.0, mask=None):
-    img = crop_to_grid(img)
+    img = crop_to_grid(img, auto_center_crop(img))
     gray = ImageOps.grayscale(img)
     w, h = gray.size
     data = [float(p) for p in gray.getdata()]
